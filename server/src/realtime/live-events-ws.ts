@@ -1,7 +1,4 @@
 import { createHash } from "node:crypto";
-import type { IncomingMessage, Server as HttpServer } from "node:http";
-import { createRequire } from "node:module";
-import type { Duplex } from "node:stream";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { agentApiKeys, companyMemberships, instanceUserRoles } from "@paperclipai/db";
@@ -10,117 +7,94 @@ import type { BetterAuthSessionResult } from "../auth/better-auth.js";
 import { logger } from "../middleware/logger.js";
 import { subscribeCompanyLiveEvents } from "../services/live-events.js";
 
-interface WsSocket {
-  readyState: number;
-  ping(): void;
-  send(data: string): void;
-  terminate(): void;
-  close(code?: number, reason?: string): void;
-  on(event: "pong", listener: () => void): void;
-  on(event: "close", listener: () => void): void;
-  on(event: "error", listener: (err: Error) => void): void;
+// The ultimate-express app exposes app.uwsApp (a uWebSockets.js TemplatedApp).
+// We use that directly for WebSocket support since ultimate-express has no app.ws() method.
+interface UExpressApp {
+  uwsApp: {
+    ws<UserData>(pattern: string, behavior: UwsBehavior<UserData>): void;
+  };
 }
 
-interface WsServer {
-  clients: Set<WsSocket>;
-  on(event: "connection", listener: (socket: WsSocket, req: IncomingMessage) => void): void;
-  on(event: "close", listener: () => void): void;
-  handleUpgrade(
-    req: IncomingMessage,
-    socket: Duplex,
-    head: Buffer,
-    callback: (ws: WsSocket) => void,
+interface UwsBehavior<UserData> {
+  sendPingsAutomatically?: boolean;
+  idleTimeout?: number;
+  upgrade?: (res: UwsResponse, req: UwsRequest, context: unknown) => void | Promise<void>;
+  open?: (ws: UwsWebSocket<UserData>) => void;
+  close?: (ws: UwsWebSocket<UserData>, code: number, message: ArrayBuffer) => void;
+  pong?: (ws: UwsWebSocket<UserData>, message: ArrayBuffer) => void;
+}
+
+interface UwsRequest {
+  getParameter(index: number): string;
+  getHeader(key: string): string;
+  getQuery(key: string): string;
+  getQuery(): string;
+}
+
+interface UwsResponse {
+  writeStatus(status: string): UwsResponse;
+  writeHeader(key: string, value: string): UwsResponse;
+  end(body?: string): UwsResponse;
+  upgrade<UserData>(
+    userData: UserData,
+    secWebSocketKey: string,
+    secWebSocketProtocol: string,
+    secWebSocketExtensions: string,
+    context: unknown,
   ): void;
-  emit(event: "connection", ws: WsSocket, req: IncomingMessage): boolean;
+  onAborted(handler: () => void): UwsResponse;
 }
 
-const require = createRequire(import.meta.url);
-const { WebSocket, WebSocketServer } = require("ws") as {
-  WebSocket: { OPEN: number };
-  WebSocketServer: new (opts: { noServer: boolean }) => WsServer;
-};
+interface UwsWebSocket<UserData> {
+  send(message: string, isBinary?: boolean): number;
+  ping(message?: string): number;
+  end(code?: number, shortMessage?: string): void;
+  close(): void;
+  getUserData(): UserData;
+}
 
 interface UpgradeContext {
   companyId: string;
   actorType: "board" | "agent";
   actorId: string;
-}
-
-interface IncomingMessageWithContext extends IncomingMessage {
-  paperclipUpgradeContext?: UpgradeContext;
+  unsubscribe?: () => void;
 }
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function rejectUpgrade(socket: Duplex, statusLine: string, message: string) {
-  const safe = message.replace(/[\r\n]+/g, " ").trim();
-  socket.write(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n${safe}`);
-  socket.destroy();
-}
-
-function parseCompanyId(pathname: string) {
-  const match = pathname.match(/^\/api\/companies\/([^/]+)\/events\/ws$/);
-  if (!match) return null;
-
-  try {
-    return decodeURIComponent(match[1] ?? "");
-  } catch {
-    return null;
-  }
-}
-
-function parseBearerToken(rawAuth: string | string[] | undefined) {
-  const auth = Array.isArray(rawAuth) ? rawAuth[0] : rawAuth;
-  if (!auth) return null;
-  if (!auth.toLowerCase().startsWith("bearer ")) return null;
-  const token = auth.slice("bearer ".length).trim();
+function parseBearerToken(rawAuth: string) {
+  if (!rawAuth) return null;
+  if (!rawAuth.toLowerCase().startsWith("bearer ")) return null;
+  const token = rawAuth.slice("bearer ".length).trim();
   return token.length > 0 ? token : null;
 }
 
-function headersFromIncomingMessage(req: IncomingMessage): Headers {
-  const headers = new Headers();
-  for (const [key, raw] of Object.entries(req.headers)) {
-    if (!raw) continue;
-    if (Array.isArray(raw)) {
-      for (const value of raw) headers.append(key, value);
-      continue;
-    }
-    headers.set(key, raw);
-  }
-  return headers;
-}
-
-async function authorizeUpgrade(
+async function authorize(
   db: Db,
-  req: IncomingMessage,
   companyId: string,
-  url: URL,
+  authHeader: string,
+  queryToken: string,
   opts: {
     deploymentMode: DeploymentMode;
     resolveSessionFromHeaders?: (headers: Headers) => Promise<BetterAuthSessionResult | null>;
   },
-): Promise<UpgradeContext | null> {
-  const queryToken = url.searchParams.get("token")?.trim() ?? "";
-  const authToken = parseBearerToken(req.headers.authorization);
-  const token = authToken ?? (queryToken.length > 0 ? queryToken : null);
+): Promise<Omit<UpgradeContext, "unsubscribe"> | null> {
+  const token = parseBearerToken(authHeader) ?? (queryToken.length > 0 ? queryToken : null);
 
-  // Browser board context has no bearer token in local_trusted and authenticated modes.
   if (!token) {
     if (opts.deploymentMode === "local_trusted") {
-      return {
-        companyId,
-        actorType: "board",
-        actorId: "board",
-      };
+      return { companyId, actorType: "board", actorId: "board" };
     }
 
     if (opts.deploymentMode !== "authenticated" || !opts.resolveSessionFromHeaders) {
       return null;
     }
 
-    const session = await opts.resolveSessionFromHeaders(headersFromIncomingMessage(req));
+    const headers = new Headers();
+    if (authHeader) headers.set("authorization", authHeader);
+    const session = await opts.resolveSessionFromHeaders(headers);
     const userId = session?.user?.id;
     if (!userId) return null;
 
@@ -145,11 +119,7 @@ async function authorizeUpgrade(
     const hasCompanyMembership = memberships.some((row) => row.companyId === companyId);
     if (!roleRow && !hasCompanyMembership) return null;
 
-    return {
-      companyId,
-      actorType: "board",
-      actorId: userId,
-    };
+    return { companyId, actorType: "board", actorId: userId };
   }
 
   const tokenHash = hashToken(token);
@@ -159,115 +129,94 @@ async function authorizeUpgrade(
     .where(and(eq(agentApiKeys.keyHash, tokenHash), isNull(agentApiKeys.revokedAt)))
     .then((rows) => rows[0] ?? null);
 
-  if (!key || key.companyId !== companyId) {
-    return null;
-  }
+  if (!key || key.companyId !== companyId) return null;
 
   await db
     .update(agentApiKeys)
     .set({ lastUsedAt: new Date() })
     .where(eq(agentApiKeys.id, key.id));
 
-  return {
-    companyId,
-    actorType: "agent",
-    actorId: key.agentId,
-  };
+  return { companyId, actorType: "agent", actorId: key.agentId };
 }
 
 export function setupLiveEventsWebSocketServer(
-  server: HttpServer,
+  app: UExpressApp,
   db: Db,
   opts: {
     deploymentMode: DeploymentMode;
     resolveSessionFromHeaders?: (headers: Headers) => Promise<BetterAuthSessionResult | null>;
   },
-) {
-  const wss = new WebSocketServer({ noServer: true });
-  const cleanupByClient = new Map<WsSocket, () => void>();
-  const aliveByClient = new Map<WsSocket, boolean>();
+): () => void {
+  // uWebSockets.js pattern — :companyId is a named parameter (getParameter(0))
+  app.uwsApp.ws<UpgradeContext>("/api/companies/:companyId/events/ws", {
+    // uWS handles pings/pongs automatically; no need for a manual interval
+    sendPingsAutomatically: true,
+    idleTimeout: 120,
 
-  const pingInterval = setInterval(() => {
-    for (const socket of wss.clients) {
-      if (!aliveByClient.get(socket)) {
-        socket.terminate();
-        continue;
+    upgrade: async (res, req, context) => {
+      // Cache values from req immediately — it is stack-allocated and invalid after first await
+      const companyIdRaw = req.getParameter(0) ?? "";
+      const authHeader = req.getHeader("authorization");
+      const queryToken = req.getQuery("token") ?? "";
+      const secWebSocketKey = req.getHeader("sec-websocket-key");
+      const secWebSocketProtocol = req.getHeader("sec-websocket-protocol");
+      const secWebSocketExtensions = req.getHeader("sec-websocket-extensions");
+
+      let aborted = false;
+      res.onAborted(() => { aborted = true; });
+
+      let companyId: string;
+      try {
+        companyId = decodeURIComponent(companyIdRaw);
+      } catch {
+        res.writeStatus("400 Bad Request").end("invalid company id");
+        return;
       }
-      aliveByClient.set(socket, false);
-      socket.ping();
-    }
-  }, 30000);
 
-  wss.on("connection", (socket: WsSocket, req: IncomingMessage) => {
-    const context = (req as IncomingMessageWithContext).paperclipUpgradeContext;
-    if (!context) {
-      socket.close(1008, "missing context");
-      return;
-    }
+      try {
+        const ctx = await authorize(db, companyId, authHeader, queryToken, opts);
+        if (aborted) return;
 
-    const unsubscribe = subscribeCompanyLiveEvents(context.companyId, (event) => {
-      if (socket.readyState !== WebSocket.OPEN) return;
-      socket.send(JSON.stringify(event));
-    });
-
-    cleanupByClient.set(socket, unsubscribe);
-    aliveByClient.set(socket, true);
-
-    socket.on("pong", () => {
-      aliveByClient.set(socket, true);
-    });
-
-    socket.on("close", () => {
-      const cleanup = cleanupByClient.get(socket);
-      if (cleanup) cleanup();
-      cleanupByClient.delete(socket);
-      aliveByClient.delete(socket);
-    });
-
-    socket.on("error", (err: Error) => {
-      logger.warn({ err, companyId: context.companyId }, "live websocket client error");
-    });
-  });
-
-  wss.on("close", () => {
-    clearInterval(pingInterval);
-  });
-
-  server.on("upgrade", (req, socket, head) => {
-    if (!req.url) {
-      rejectUpgrade(socket, "400 Bad Request", "missing url");
-      return;
-    }
-
-    const url = new URL(req.url, "http://localhost");
-    const companyId = parseCompanyId(url.pathname);
-    if (!companyId) {
-      socket.destroy();
-      return;
-    }
-
-    void authorizeUpgrade(db, req, companyId, url, {
-      deploymentMode: opts.deploymentMode,
-      resolveSessionFromHeaders: opts.resolveSessionFromHeaders,
-    })
-      .then((context) => {
-        if (!context) {
-          rejectUpgrade(socket, "403 Forbidden", "forbidden");
+        if (!ctx) {
+          res.writeStatus("403 Forbidden").end("forbidden");
           return;
         }
 
-        const reqWithContext = req as IncomingMessageWithContext;
-        reqWithContext.paperclipUpgradeContext = context;
+        res.upgrade<UpgradeContext>(
+          { ...ctx },
+          secWebSocketKey,
+          secWebSocketProtocol,
+          secWebSocketExtensions,
+          context,
+        );
+      } catch (err) {
+        logger.error({ err, companyId }, "failed websocket upgrade authorization");
+        if (!aborted) {
+          res.writeStatus("500 Internal Server Error").end("upgrade failed");
+        }
+      }
+    },
 
-        wss.handleUpgrade(req, socket, head, (ws: WsSocket) => {
-          wss.emit("connection", ws, reqWithContext);
-        });
-      })
-      .catch((err) => {
-        logger.error({ err, path: req.url }, "failed websocket upgrade authorization");
-        rejectUpgrade(socket, "500 Internal Server Error", "upgrade failed");
+    open: (ws) => {
+      const userData = ws.getUserData();
+      const unsubscribe = subscribeCompanyLiveEvents(userData.companyId, (event) => {
+        ws.send(JSON.stringify(event));
       });
+      userData.unsubscribe = unsubscribe;
+    },
+
+    close: (ws, code, _message) => {
+      const userData = ws.getUserData();
+      if (userData.unsubscribe) {
+        userData.unsubscribe();
+        userData.unsubscribe = undefined;
+      }
+      if (code !== 1000 && code !== 1001) {
+        logger.warn({ code, companyId: userData.companyId }, "live websocket closed with non-normal code");
+      }
+    },
   });
 
-  return wss;
+  // Nothing to clean up — uWS manages its own ping/pong via sendPingsAutomatically
+  return () => {};
 }

@@ -302,9 +302,6 @@ importers:
       ultimate-express:
         specifier: ^2.0.17
         version: 2.0.17
-      ws:
-        specifier: ^8.19.0
-        version: 8.19.0
       zod:
         specifier: ^3.24.2
         version: 3.25.76
@@ -324,9 +321,6 @@ importers:
       '@types/supertest':
         specifier: ^6.0.2
         version: 6.0.3
-      '@types/ws':
-        specifier: ^8.18.1
-        version: 8.18.1
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
