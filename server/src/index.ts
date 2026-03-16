@@ -492,8 +492,11 @@ export async function startServer(): Promise<StartedServer> {
     deploymentMode: config.deploymentMode,
     resolveSessionFromHeaders,
   });
-  process.once("SIGTERM", wsCleanup);
-  process.once("SIGINT", wsCleanup);
+  // Embedded-postgres shutdown handler calls wsCleanup() directly; skip here to avoid double-call.
+  if (!embeddedPostgres || !embeddedPostgresStartedByThisProcess) {
+    process.once("SIGTERM", wsCleanup);
+    process.once("SIGINT", wsCleanup);
+  }
   
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any);
