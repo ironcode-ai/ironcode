@@ -1,5 +1,5 @@
 import express from "ultimate-express";
-import { Router, type Request as ExpressRequest, type RequestHandler } from "express";
+import { Router, type Application, type Request as ExpressRequest, type RequestHandler } from "express";
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -25,7 +25,6 @@ import { sidebarBadgeRoutes } from "./routes/sidebar-badges.js";
 import { llmRoutes } from "./routes/llms.js";
 import { assetRoutes } from "./routes/assets.js";
 import { accessRoutes } from "./routes/access.js";
-import type { Application } from "express";
 import type { BetterAuthSessionResult } from "./auth/better-auth.js";
 
 type UiMode = "none" | "static" | "vite-dev";
@@ -48,30 +47,30 @@ export async function createApp(
   const app = express();
   // ultimate-express uses Express 4 types internally; bridge to Express 5 types used
   // throughout the server so middleware assignments typecheck correctly.
-  const r = app as unknown as Application;
+  const typedApp = app as unknown as Application;
 
-  r.use(express.json() as unknown as RequestHandler);
-  r.use(httpLogger);
+  typedApp.use(express.json() as unknown as RequestHandler);
+  typedApp.use(httpLogger);
   const privateHostnameGateEnabled =
     opts.deploymentMode === "authenticated" && opts.deploymentExposure === "private";
   const privateHostnameAllowSet = resolvePrivateHostnameAllowSet({
     allowedHostnames: opts.allowedHostnames,
     bindHost: opts.bindHost,
   });
-  r.use(
+  typedApp.use(
     privateHostnameGuard({
       enabled: privateHostnameGateEnabled,
       allowedHostnames: opts.allowedHostnames,
       bindHost: opts.bindHost,
     }),
   );
-  r.use(
+  typedApp.use(
     actorMiddleware(db, {
       deploymentMode: opts.deploymentMode,
       resolveSession: opts.resolveSession,
     }),
   );
-  r.get("/api/auth/get-session", (req, res) => {
+  typedApp.get("/api/auth/get-session", (req, res) => {
     if (req.actor.type !== "board" || !req.actor.userId) {
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -89,9 +88,9 @@ export async function createApp(
     });
   });
   if (opts.betterAuthHandler) {
-    r.all("/api/auth/*", opts.betterAuthHandler);
+    typedApp.all("/api/auth/*", opts.betterAuthHandler);
   }
-  r.use(llmRoutes(db));
+  typedApp.use(llmRoutes(db));
 
   // Mount API routes
   const api = Router();
@@ -125,8 +124,8 @@ export async function createApp(
       allowedHostnames: opts.allowedHostnames,
     }),
   );
-  r.use("/api", api);
-  r.use("/api", (_req, res) => {
+  typedApp.use("/api", api);
+  typedApp.use("/api", (_req, res) => {
     res.status(404).json({ error: "API route not found" });
   });
 
@@ -140,8 +139,8 @@ export async function createApp(
     const uiDist = candidates.find((p) => fs.existsSync(path.join(p, "index.html")));
     if (uiDist) {
       const indexHtml = fs.readFileSync(path.join(uiDist, "index.html"), "utf-8");
-      r.use(express.static(uiDist) as unknown as RequestHandler);
-      r.get("*", (_req, res) => {
+      typedApp.use(express.static(uiDist) as unknown as RequestHandler);
+      typedApp.get("*", (_req, res) => {
         res.status(200).set("Content-Type", "text/html").end(indexHtml);
       });
     } else {
@@ -161,8 +160,8 @@ export async function createApp(
       },
     });
 
-    r.use(vite.middlewares as unknown as RequestHandler);
-    r.get("*", async (req, res, next) => {
+    typedApp.use(vite.middlewares as unknown as RequestHandler);
+    typedApp.get("*", async (req, res, next) => {
       try {
         const templatePath = path.resolve(uiRoot, "index.html");
         const template = fs.readFileSync(templatePath, "utf-8");
@@ -174,7 +173,7 @@ export async function createApp(
     });
   }
 
-  r.use(errorHandler);
+  typedApp.use(errorHandler);
 
   return app;
 }
