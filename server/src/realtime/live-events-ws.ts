@@ -75,6 +75,7 @@ async function authorize(
   db: Db,
   companyId: string,
   authHeader: string,
+  cookieHeader: string,
   queryToken: string,
   opts: {
     deploymentMode: DeploymentMode;
@@ -94,6 +95,7 @@ async function authorize(
 
     const headers = new Headers();
     if (authHeader) headers.set("authorization", authHeader);
+    if (cookieHeader) headers.set("cookie", cookieHeader);
     const session = await opts.resolveSessionFromHeaders(headers);
     const userId = session?.user?.id;
     if (!userId) return null;
@@ -157,6 +159,7 @@ export function setupLiveEventsWebSocketServer(
       // Cache values from req immediately — it is stack-allocated and invalid after first await
       const companyIdRaw = req.getParameter(0) ?? "";
       const authHeader = req.getHeader("authorization");
+      const cookieHeader = req.getHeader("cookie");
       const queryToken = req.getQuery("token") ?? "";
       const secWebSocketKey = req.getHeader("sec-websocket-key");
       const secWebSocketProtocol = req.getHeader("sec-websocket-protocol");
@@ -174,7 +177,7 @@ export function setupLiveEventsWebSocketServer(
       }
 
       try {
-        const ctx = await authorize(db, companyId, authHeader, queryToken, opts);
+        const ctx = await authorize(db, companyId, authHeader, cookieHeader, queryToken, opts);
         if (aborted) return;
 
         if (!ctx) {
@@ -217,6 +220,6 @@ export function setupLiveEventsWebSocketServer(
     },
   });
 
-  // Nothing to clean up — uWS manages its own ping/pong via sendPingsAutomatically
+  // uWS manages heartbeat via sendPingsAutomatically; nothing to tear down
   return () => {};
 }
