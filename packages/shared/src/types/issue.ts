@@ -1,4 +1,13 @@
+export type {
+  IssueContext,
+  IssueContextPmBrief,
+  IssueContextArchitectPlan,
+  IssueContextSweResult,
+  IssueContextReviewVerdict,
+} from "./issue-context.js";
+
 import type { IssuePriority, IssueStatus } from "../constants.js";
+import type { IssueContext } from "./issue-context.js";
 import type { Goal } from "./goal.js";
 import type { Project, ProjectWorkspace } from "./project.js";
 
@@ -73,6 +82,8 @@ export interface Issue {
   requestDepth: number;
   billingCode: string | null;
   assigneeAdapterOverrides: IssueAssigneeAdapterOverrides | null;
+  context: IssueContext | null;
+  prUrl: string | null;
   startedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;

@@ -8,6 +8,36 @@ export const issueAssigneeAdapterOverridesSchema = z
   })
   .strict();
 
+export const issueContextSchema = z.object({
+  pmBrief: z.object({
+    clarifiedTitle: z.string(),
+    acceptanceCriteria: z.array(z.string()),
+    complexity: z.enum(["trivial", "small", "medium", "large"]),
+  }).optional(),
+  architectPlan: z.object({
+    approach: z.string(),
+    filesToModify: z.array(z.string()),
+    filesToCreate: z.array(z.string()),
+    testPlan: z.string(),
+    dependencies: z.array(z.string()).optional(),
+    plan: z.string().optional(),
+  }).optional(),
+  sweResult: z.object({
+    branch: z.string(),
+    prUrl: z.string(),
+    prNumber: z.number().int(),
+    filesChanged: z.number().int(),
+    testsPassed: z.boolean(),
+    costCents: z.number().int(),
+  }).optional(),
+  reviewVerdict: z.object({
+    decision: z.enum(["approved", "changes_requested"]),
+    summary: z.string(),
+    issues: z.array(z.string()).optional(),
+    iteration: z.number().int().min(1),
+  }).optional(),
+}).nullable().optional();
+
 export const createIssueSchema = z.object({
   projectId: z.string().uuid().optional().nullable(),
   goalId: z.string().uuid().optional().nullable(),
@@ -22,6 +52,8 @@ export const createIssueSchema = z.object({
   billingCode: z.string().optional().nullable(),
   assigneeAdapterOverrides: issueAssigneeAdapterOverridesSchema.optional().nullable(),
   labelIds: z.array(z.string().uuid()).optional(),
+  context: issueContextSchema,
+  prUrl: z.string().url().nullable().optional(),
 });
 
 export type CreateIssue = z.infer<typeof createIssueSchema>;
