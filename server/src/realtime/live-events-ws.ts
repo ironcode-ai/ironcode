@@ -28,7 +28,6 @@ interface UwsRequest {
   getParameter(index: number): string;
   getHeader(key: string): string;
   getQuery(key: string): string;
-  getQuery(): string;
 }
 
 interface UwsResponse {
@@ -57,7 +56,7 @@ interface UpgradeContext {
   companyId: string;
   actorType: "board" | "agent";
   actorId: string;
-  unsubscribe?: () => void;
+  unsubscribe: () => void;  // non-optional; initialized as no-op, replaced in open()
 }
 
 function hashToken(token: string) {
@@ -186,7 +185,7 @@ export function setupLiveEventsWebSocketServer(
         }
 
         res.upgrade<UpgradeContext>(
-          { ...ctx },
+          { ...ctx, unsubscribe: () => {} },
           secWebSocketKey,
           secWebSocketProtocol,
           secWebSocketExtensions,
@@ -210,10 +209,8 @@ export function setupLiveEventsWebSocketServer(
 
     close: (ws, code, _message) => {
       const userData = ws.getUserData();
-      if (userData.unsubscribe) {
-        userData.unsubscribe();
-        userData.unsubscribe = undefined;
-      }
+      userData.unsubscribe();
+      userData.unsubscribe = () => {};
       if (code !== 1000 && code !== 1001) {
         logger.warn({ code, companyId: userData.companyId }, "live websocket closed with non-normal code");
       }
