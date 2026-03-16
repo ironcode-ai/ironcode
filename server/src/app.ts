@@ -49,6 +49,18 @@ export async function createApp(
   // throughout the server so middleware assignments typecheck correctly.
   const typedApp = app as unknown as Application;
 
+  // Shadow req.baseUrl as a plain own property so Express 5 Router's restore() cannot
+  // trigger ultimate-express's baseUrl setter that wipes _originalPath.
+  typedApp.use(((req: any, _res: any, next: any) => {
+    Object.defineProperty(req, "baseUrl", {
+      value: "",
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+    next();
+  }) as unknown as RequestHandler);
+
   typedApp.use(express.json() as unknown as RequestHandler);
   typedApp.use(httpLogger);
   const privateHostnameGateEnabled =
