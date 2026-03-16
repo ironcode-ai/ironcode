@@ -25,7 +25,7 @@ interface UwsBehavior<UserData> {
 }
 
 interface UwsRequest {
-  getParameter(index: number): string;
+  getParameter(index: number): string | undefined;
   getHeader(key: string): string;
   getQuery(key: string): string;
 }

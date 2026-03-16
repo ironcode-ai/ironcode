@@ -1,6 +1,5 @@
 /// <reference path="./types/express.d.ts" />
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
@@ -59,7 +58,7 @@ type EmbeddedPostgresCtor = new (opts: {
 
 
 export interface StartedServer {
-  server: ReturnType<typeof createServer>;
+  app: Awaited<ReturnType<typeof createApp>>;
   host: string;
   listenPort: number;
   apiUrl: string;
@@ -474,7 +473,6 @@ export async function startServer(): Promise<StartedServer> {
     betterAuthHandler,
     resolveSession,
   });
-  const server = createServer(app as unknown as Parameters<typeof createServer>[0]);
   const listenPort = await detectPort(config.port);
   
   if (listenPort !== config.port) {
@@ -490,10 +488,12 @@ export async function startServer(): Promise<StartedServer> {
   process.env.PAPERCLIP_LISTEN_PORT = String(listenPort);
   process.env.PAPERCLIP_API_URL = `http://${runtimeApiHost}:${listenPort}`;
   
-  setupLiveEventsWebSocketServer(server, db as any, {
+  const wsCleanup = setupLiveEventsWebSocketServer(app, db as any, {
     deploymentMode: config.deploymentMode,
     resolveSessionFromHeaders,
   });
+  process.once("SIGTERM", wsCleanup);
+  process.once("SIGINT", wsCleanup);
   
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any);
@@ -573,14 +573,11 @@ export async function startServer(): Promise<StartedServer> {
   }
   
   await new Promise<void>((resolveListen, rejectListen) => {
-    const onError = (err: Error) => {
-      server.off("error", onError);
-      rejectListen(err);
-    };
-
-    server.once("error", onError);
-    server.listen(listenPort, config.host, () => {
-      server.off("error", onError);
+    app.listen(listenPort, config.host, (listenSocket: unknown) => {
+      if (!listenSocket) {
+        rejectListen(new Error(`Failed to bind port ${listenPort}`));
+        return;
+      }
       logger.info(`Server listening on ${config.host}:${listenPort}`);
       if (process.env.PAPERCLIP_OPEN_ON_LISTEN === "true") {
         const openHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
@@ -635,6 +632,7 @@ export async function startServer(): Promise<StartedServer> {
   if (embeddedPostgres && embeddedPostgresStartedByThisProcess) {
     const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
       logger.info({ signal }, "Stopping embedded PostgreSQL");
+      wsCleanup();
       try {
         await embeddedPostgres?.stop();
       } catch (err) {
@@ -653,7 +651,7 @@ export async function startServer(): Promise<StartedServer> {
   }
 
   return {
-    server,
+    app,
     host: config.host,
     listenPort,
     apiUrl: process.env.PAPERCLIP_API_URL ?? `http://${runtimeApiHost}:${listenPort}`,
