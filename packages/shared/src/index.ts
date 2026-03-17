@@ -270,3 +270,10 @@ export {
   type SecretsLocalEncryptedConfig,
   type ConfigMeta,
 } from "./config-schema.js";
+
+export {
+  ROLE_TEMPLATES,
+  type RoleTemplate,
+  type RoleAdapterDefaults,
+  type RoleSkillRecommendation,
+} from "./role-templates.js";
