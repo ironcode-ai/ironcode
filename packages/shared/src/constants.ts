@@ -45,6 +45,14 @@ export const AGENT_ROLES = [
   "devops",
   "researcher",
   "general",
+  // role templates
+  "security_engineer",
+  "ba",
+  "frontend_engineer",
+  "backend_engineer",
+  "solution_architect",
+  "mobile_engineer",
+  "scrum_master",
 ] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
@@ -60,6 +68,14 @@ export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
   devops: "DevOps",
   researcher: "Researcher",
   general: "General",
+  // role templates
+  security_engineer: "Security Engineer",
+  ba: "Business Analyst",
+  frontend_engineer: "Frontend Engineer",
+  backend_engineer: "Backend Engineer",
+  solution_architect: "Solution Architect",
+  mobile_engineer: "Mobile Engineer",
+  scrum_master: "Scrum Master",
 };
 
 export const AGENT_ICON_NAMES = [
