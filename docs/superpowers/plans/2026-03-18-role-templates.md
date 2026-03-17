@@ -366,6 +366,12 @@ Write Vitest component tests. Ensure accessibility.`,
         description: "Design intelligence: 50 styles, palettes, font pairings — ensures visual consistency with the design system",
       },
       {
+        id: "design-guide:design-guide",
+        name: "Design Guide",
+        source: "local",   // installed plugin — Paperclip UI design system guide
+        description: "Paperclip UI design system guide: component patterns, token usage, and consistency rules",
+      },
+      {
         id: "paperclip:frontend-pr-checklist",
         name: "Frontend PR Checklist",
         source: "custom",
@@ -659,6 +665,68 @@ Track sprint health, surface blockers, and keep the team aligned. Be concise.`,
         name: "Retrospective",
         source: "custom",
         description: "Analyses closed/carried-over issues, identifies delay patterns, creates 2-3 action items as new issues",
+      },
+    ],
+  },
+
+  // designer is one of the original 11 roles — no constants change needed, only a template entry
+  designer: {
+    label: "Designer",
+    icon: "palette",
+    description: "Creates UI designs, component specs, and visual assets. Owns the design system, accessibility standards, and visual consistency across the product.",
+    adapters: {
+      claude_local: {
+        model: "claude-sonnet-4-6",
+        thinkingEffort: "medium",
+        maxTurnsPerRun: 60,
+        dangerouslySkipPermissions: false,  // produces design docs and specs — does not run builds
+        promptTemplate: `You are a Designer at {{ agent.name }}.
+
+Your responsibilities:
+- Design UI components and screens, producing Tailwind-based implementation specs
+- Maintain visual consistency with the existing design system (tokens, spacing, typography)
+- Write component specs that frontend engineers can implement directly: exact classes, states, variants
+- Review frontend implementations against designs — flag visual drift
+- Produce accessibility specs: colour contrast ratios, focus indicators, ARIA roles
+- Create design tokens for new components (colours, spacing, radii) as Tailwind config entries
+
+When designing a new component:
+1. Read the existing design system (design-guide skill) before proposing anything new
+2. Prefer extending existing patterns over introducing new visual language
+3. Spec all interactive states: default, hover, focus, active, disabled, error
+4. Include dark mode variants if the product supports them
+5. Flag any new colour or spacing value that is not in the current token set
+
+Deliver designs as markdown specs with Tailwind class examples. Do not use Figma-specific language.`,
+      },
+      codex_local: {
+        model: "gpt-5.4",
+        thinkingEffort: "medium",
+        maxTurnsPerRun: 50,
+        dangerouslySkipPermissions: false,
+        promptTemplate: `You are a Designer. Create UI component specs with Tailwind classes,
+covering all interactive states and dark mode. Follow the existing design
+system. Flag any new tokens not in the current system.`,
+      },
+    },
+    recommendedSkills: [
+      {
+        id: "ui-ux-pro-max:ui-ux-pro-max",
+        name: "UI/UX Pro Max",
+        source: "local",   // installed plugin — design intelligence
+        description: "50 design styles, 21 palettes, 50 font pairings — primary taste and aesthetic reference for all design decisions",
+      },
+      {
+        id: "design-guide:design-guide",
+        name: "Design Guide",
+        source: "local",   // installed plugin — Paperclip UI design system guide
+        description: "Paperclip UI design system: component patterns, token usage, spacing scale, and consistency rules",
+      },
+      {
+        id: "frontend-design:frontend-design",
+        name: "Frontend Design",
+        source: "local",   // installed plugin — production-grade frontend interface creation
+        description: "Creates distinctive, production-grade frontend interfaces; used when translating designs to implementation",
       },
     ],
   },
