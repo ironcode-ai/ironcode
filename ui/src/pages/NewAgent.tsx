@@ -5,7 +5,7 @@ import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { agentsApi } from "../api/agents";
 import { queryKeys } from "../lib/queryKeys";
-import { AGENT_ROLES } from "@paperclipai/shared";
+import { AGENT_ROLES, ROLE_TEMPLATES, type AgentAdapterType } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -115,6 +115,36 @@ export function NewAgent() {
       return createValuesForAdapterType(requested as CreateConfigValues["adapterType"]);
     });
   }, [presetAdapterType]);
+
+  // Apply role template defaults when role or adapterType changes.
+  // Merges only the 5 RoleAdapterDefaults fields; all other configValues
+  // fields (cwd, heartbeatEnabled, etc.) are left untouched.
+  // If the new role has no template, reset the 5 fields to universal defaults.
+  useEffect(() => {
+    const template = ROLE_TEMPLATES[effectiveRole as keyof typeof ROLE_TEMPLATES];
+    const adapterDefaults = template?.adapters[configValues.adapterType as AgentAdapterType];
+
+    if (adapterDefaults) {
+      setConfigValues((prev) => ({
+        ...prev,
+        model: adapterDefaults.model,
+        thinkingEffort: adapterDefaults.thinkingEffort,
+        promptTemplate: adapterDefaults.promptTemplate,
+        maxTurnsPerRun: adapterDefaults.maxTurnsPerRun,
+        dangerouslySkipPermissions: adapterDefaults.dangerouslySkipPermissions,
+      }));
+    } else {
+      // No template for this role+adapter — reset to universal defaults
+      setConfigValues((prev) => ({
+        ...prev,
+        model: defaultCreateValues.model,
+        thinkingEffort: defaultCreateValues.thinkingEffort,
+        promptTemplate: defaultCreateValues.promptTemplate,
+        maxTurnsPerRun: defaultCreateValues.maxTurnsPerRun,
+        dangerouslySkipPermissions: defaultCreateValues.dangerouslySkipPermissions,
+      }));
+    }
+  }, [effectiveRole, configValues.adapterType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createAgent = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
