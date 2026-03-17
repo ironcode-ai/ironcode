@@ -12,7 +12,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Shield, User } from "lucide-react";
+import { Shield, User, ExternalLink } from "lucide-react";
 import { cn, agentUrl } from "../lib/utils";
 import { roleLabels } from "../components/agent-config-primitives";
 import { AgentConfigForm, type CreateConfigValues } from "../components/AgentConfigForm";
@@ -336,6 +336,50 @@ export function NewAgent() {
           onChange={(patch) => setConfigValues((prev) => ({ ...prev, ...patch }))}
           adapterModels={adapterModels}
         />
+
+        {/* Recommended Skills */}
+        {(() => {
+          const template = ROLE_TEMPLATES[effectiveRole as keyof typeof ROLE_TEMPLATES];
+          const skills = template?.recommendedSkills;
+          if (!skills || skills.length === 0) return null;
+          return (
+            <div className="border-t border-border px-4 py-3 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Recommended Skills</p>
+              <div className="space-y-1">
+                {skills.map((skill) => (
+                  <div key={skill.id} className="flex items-start justify-between gap-2 py-1">
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium">{skill.name}</span>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{skill.description}</p>
+                    </div>
+                    <div className="shrink-0 mt-0.5">
+                      {skill.source === "local" && (
+                        <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-600 dark:text-green-400">
+                          Available
+                        </span>
+                      )}
+                      {skill.source === "marketplace" && skill.url && (
+                        <a
+                          href={skill.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs hover:bg-accent/50 transition-colors"
+                        >
+                          Install <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      )}
+                      {skill.source === "custom" && (
+                        <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                          Needs creation
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Footer */}
         <div className="border-t border-border px-4 py-3">
